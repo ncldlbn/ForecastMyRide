@@ -8,11 +8,11 @@ from datetime import datetime, time
 import gpxpy
 import gpxpy.gpx
 # Custom libraries
-from functions.UI import *
-from functions.defaults import *
-from functions.Route import Percorso
-from functions.SpeedModel import CyclingPowerModel, BikeSetup
-from functions.OpenMeteoAPI import *
+from UI.functions import *
+from model.defaults import *
+from model.Route import Percorso
+from model.SpeedModel import CyclingPowerModel, BikeSetup
+from model.OpenMeteoAPI import *
 
 # --------------------------------------------------------------------
 # PAGE CONFIG

@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.patches import Patch
 
-from functions.OpenMeteoAPI import meteo_api_request
+from model.OpenMeteoAPI import meteo_api_request
 
 @dataclass
 class TrackPoint:
