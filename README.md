@@ -24,6 +24,11 @@ View the app at `http://localhost:8501`
 
 ---
 
+Run the container in development mode:
+```
+docker run -it --rm -v "$PWD":/app -p 8501:8501 -w /app forecastmyride-img
+```
+
 Stop and run the container after first launch
 ```
 docker stop forecastmyride-app
