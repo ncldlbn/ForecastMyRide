@@ -17,7 +17,7 @@ from model.OpenMeteoAPI import *
 # --------------------------------------------------------------------
 # PAGE CONFIG
 # --------------------------------------------------------------------
-st.set_page_config(page_title="ForecastMyRide", page_icon="🌦️", layout="centered")
+st.set_page_config(page_title="ForecastMyRide", page_icon="🌦️", layout="wide")
 st.title("🌦️ ForecastMyRide")
 
 # --------------------------------------------------------------------
@@ -167,21 +167,14 @@ with st.sidebar.expander("🌦️ Weather Forecast", expanded=True):
 # Footer
 st.sidebar.markdown("**Help**")
 st.sidebar.markdown("**Credits**")
-st.sidebar.markdown("ℹ️ Created with [Streamlit](https://streamlit.io/) using weather data from [OpenMeteoAPI](https://open-meteo.com/)")
-st.sidebar.markdown(f"🐙 [Github](https://github.com/) Repository", unsafe_allow_html=True)
-st.sidebar.markdown(f"🍺 Support me on [PayPal](https://www.paypal.com/it/home)", unsafe_allow_html=True)
+st.sidebar.markdown("Created with [Streamlit](https://streamlit.io/) using weather data from [OpenMeteoAPI](https://open-meteo.com/)")
+st.sidebar.markdown(f"🐙 [Github](https://github.com/ncldlbn/ForecastMyRide/tree/main) Repository", unsafe_allow_html=True)
+#st.sidebar.markdown(f"🍺 Support me on [PayPal](https://www.paypal.com/it/home)", unsafe_allow_html=True)
 
 
 # --------------------------------------------------------------------
 # MAIN
 # --------------------------------------------------------------------
-
-
-# Parse
-# if uploaded_file is not None:
-#     gpx = parse_gpx(uploaded_file)
-    #m = create_map(gpx)
-    #st_folium(m, use_container_width=True, height=500)
 
 # === SETUP === #
 # Define start datetime
@@ -194,51 +187,45 @@ bike_setup = BikeSetup(W_cyclist, W_bike, W_other, Crr, Cd, A, drivetrain_loss=0
 bike_model = CyclingPowerModel(bike_setup)
 
 # === GPX FILE === #
+# Init session state
+if "percorso" not in st.session_state:
+    st.session_state["percorso"] = None
+if "time_estimated" not in st.session_state:
+    st.session_state["time_estimated"] = False
+
 # Upload
 uploaded_file = st.file_uploader("", type=["gpx"], accept_multiple_files=False, help="Drag the file here or click to select it.")
 if uploaded_file is not None:
-    percorso = Percorso(uploaded_file)
-    #percorso.simplify(min_distance=50)
-    percorso.calculate_metrics()
-    percorso.get_speed(bike_model, power)
-    percorso.add_timestamp(dt)
+    if st.button("⏱️ Estimate Ride Time", use_container_width=True):
+        percorso = Percorso(uploaded_file)
+        percorso.simplify(min_distance=50)
+        percorso.calculate_metrics()
+        percorso.get_speed(bike_model, power)
+        percorso.add_timestamp(dt)
+
+        st.session_state["percorso"] = percorso
+        st.session_state["time_estimated"] = True
+
+# === Mostra i dati stimati se già stimati ===
+if st.session_state["time_estimated"]:
+    percorso = st.session_state["percorso"]
 
     cols = st.columns(2)
     with cols[0]:
         st.metric("Start datetime", percorso.start_time)
-        #st.metric("Distance", f"{percorso.total_distance} km")
+        st.metric("Distance", f"{percorso.total_distance} km")
         st.metric("Avg speed", f"{percorso.avg_speed} km/h")
     with cols[1]:
         st.metric("End datetime", percorso.end_time)
         st.metric("Total time", f"{percorso.total_hours}")
-        #st.metric("Kcal", f"{percorso.total_calories:.0f} kcal")
+        st.metric("Kcal", f"{percorso.total_calories:.0f} kcal")
 
-    # ------------------------------------------------------------------
-    # PREVISIONI METEO
-    # ------------------------------------------------------------------
-    if st.button("Get Weather Forecast"):
+    percorso.plot_speed_profile()
 
+# === PREVISIONI METEO ===
+if st.session_state["time_estimated"]:
+    if st.button("🌤️ Get Weather Forecast", use_container_width=True):
+        percorso = st.session_state["percorso"]
         percorso.mark_forecast_points()
-
         percorso.weather_forecast()
-
         percorso.plot_weather()
-        
-
-
-# if gpx.tracks:
-#     distance = sum(track.length_3d() for track in gpx.tracks) / 1000  # in km
-#     moving_time, stopped_time, moving_distance, stopped_distance, max_speed = gpx.get_moving_data()
-    
-#     cols = st.columns(3)
-#     with cols[0]:
-#         st.metric("Distance", f"{distance:.2f} km")
-#     with cols[1]:
-#         if moving_time:
-#             st.metric("Elevation", f"{moving_time / 60:.1f} min")
-#     with cols[2]:
-#         if max_speed:
-#             st.metric("Velocità massima", f"{max_speed * 3.6:.1f} km/h")
-
-
-

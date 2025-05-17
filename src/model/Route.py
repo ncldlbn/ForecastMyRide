@@ -9,6 +9,9 @@ import seaborn as sns
 from scipy.signal import savgol_filter
 from dataclasses import dataclass
 from typing import List, Dict, Optional
+import plotly.graph_objects as go
+import folium
+from streamlit_folium import st_folium
 
 import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap
@@ -283,31 +286,48 @@ class Percorso:
         self.total_distance = round(self.metrics_df['distance'].sum() / 1000, 2)
         self.total_calories = round(self.metrics_df['calories'].sum(), 2)
 
-    def plot_elevation_and_speed_profile(self):
-        """Stampa il profilo altimetrico e la velocità lungo il percorso"""
+    def plot_speed_profile(self):
+        """Mostra grafici interattivi di elevazione e velocità lungo il percorso"""
         if self.metrics_df.empty:
             self.calculate_metrics()
 
         df = self.metrics_df.copy()
 
-        fig, axs = plt.subplots(2, 1, figsize=(14, 10), sharex=True)
-
-        # Profilo altimetrico
-        axs[0].plot(df['passage_time'], df['ele_smooth'], color='green', linewidth=1.5)
-        axs[0].set_ylabel('Elevazione (m)')
-        axs[0].set_title('Profilo Altimetrico')
+        # === Profilo Altimetrico ===
+        fig_elev = go.Figure()
+        fig_elev.add_trace(go.Scatter(
+            x=df['dist_cumulata']/1000,
+            y=df["ele_smooth"],
+            mode='lines',
+            name='Altitude',
+            line=dict(color='green')
+        ))
+        fig_elev.update_layout(
+            xaxis_title="Distance (km)",
+            yaxis_title="Altitude (m)",
+            template="plotly_white",
+            height=500
+        )
+        st.plotly_chart(fig_elev, use_container_width=True)
 
         # Velocità
-        axs[1].plot(df['passage_time'], df['speed'], color='blue', linewidth=1.5)
-        axs[1].set_ylabel('Velocità (km/h)')
-        axs[1].set_xlabel('Distanza cumulativa (m)')
-        axs[1].set_title('Velocità istantanea')
+        fig_speed = go.Figure()
+        fig_speed.add_trace(go.Scatter(
+            x=df['dist_cumulata']/1000,
+            y=df['speed'],
+            mode='lines',
+            name='Speed',
+            line=dict(color='blue')
+        ))
+        fig_speed.update_layout(
+            xaxis_title='Distance (km)',
+            yaxis_title='Speed (km/h)',
+            template='plotly_white',
+            height=500
+        )
 
-        for ax in axs:
-            ax.grid(True, linestyle=':', alpha=0.6)
-
-        plt.tight_layout()
-        plt.show()
+        # Mostra i grafici in Streamlit
+        st.plotly_chart(fig_speed, use_container_width=True)
 
     def add_timestamp(self, start_time: str | datetime) -> None:
         """
@@ -401,35 +421,66 @@ class Percorso:
 
     def plot_weather(self):
         """
-        Genera grafici del profilo altimetrico e delle variabili meteorologiche lungo il percorso.
-        
-        Parametri:
-        - df: DataFrame con almeno le colonne 'dist_cumulata' e 'ele_smooth'
-        - meteo_cols: lista di stringhe con i nomi delle colonne meteo da graficare
-        - title_prefix: prefisso da aggiungere ai titoli dei grafici
+        Genera grafici interattivi del profilo altimetrico e delle variabili meteorologiche lungo il percorso.
         """
-
         meteo_cols = ["t_2m_C", "prec_mm", "prec_probability_%", "tailwind", "WMO_code", "UV_index"]
+        df = self.metrics_df.copy()
+        x = df["dist_cumulata"] / 1000  # Converti in km
 
-        num_meteo = len(meteo_cols)
-
-        # Imposta il layout: 1 grafico altimetrico + n grafici meteo
-        fig, axs = plt.subplots(1 + num_meteo, 1, figsize=(10, 4 * (1 + num_meteo)), sharex=True)
-        
-        # Grafico altimetrico
-        sns.lineplot(data=self.metrics_df, x='dist_cumulata', y='ele_smooth', ax=axs[0], color='forestgreen')
-        #axs[0].set_title(f"{title_prefix}Profilo Altimetrico")
-        axs[0].set_ylabel("Altitudine (m)")
-        axs[0].grid(True)
-
-        # Grafici meteo
-        for i, col in enumerate(meteo_cols):
-            sns.lineplot(data=self.metrics_df, x='dist_cumulata', y=col, ax=axs[i + 1])
-            #axs[i + 1].set_title(f"{title_prefix}{col}")
-            axs[i + 1].set_ylabel(col)
-            axs[i + 1].grid(True)
-
-        axs[-1].set_xlabel("Distanza cumulata (km)")
-        plt.tight_layout()
-        st.pyplot(fig)
+        # === Grafici meteo ===
+        for col in meteo_cols:
+            df[col] = df[col].interpolate()
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(
+                x=x,
+                y=df[col],
+                mode='lines',
+                name=col,
+                line=dict(width=2, color='steelblue'),
+                connectgaps=True
+            ))
+            fig.update_layout(
+                title=col,
+                xaxis_title="Distanza (km)",
+                yaxis_title=col,
+                template="plotly_white",
+                height=500
+            )
+            st.plotly_chart(fig, use_container_width=True)
         #plt.show()
+
+    def show_interactive_map(self):
+        """Mostra una mappa interattiva con tooltip su ogni punto del percorso"""
+        if self.metrics_df.empty:
+            self.calculate_metrics()
+
+        df = self.metrics_df.copy()
+
+        # Centra la mappa sul primo punto
+        center = [df['lat'].iloc[0], df['lon'].iloc[0]]
+        m = folium.Map(location=center, zoom_start=13, tiles="OpenStreetMap")
+
+        # Linea del percorso
+        points = list(zip(df['lat'], df['lon']))
+        folium.PolyLine(points, color="blue", weight=3, opacity=0.7).add_to(m)
+
+        # Marker con tooltip per ogni punto (puoi filtrare per prestazioni)
+        step = max(1, len(df) // 500)  # massimo 500 marker
+        for i in range(0, len(df), step):
+            lat = df.iloc[i]['lat']
+            lon = df.iloc[i]['lon']
+            km = df.iloc[i]['cum_distance'] / 1000  # converti in km
+            time = df.iloc[i]['passage_time']
+            tooltip = f"{km:.2f} km<br>{time}"
+            folium.CircleMarker(
+                location=(lat, lon),
+                radius=2,
+                color='red',
+                fill=True,
+                fill_opacity=0.4,
+                tooltip=tooltip
+            ).add_to(m)
+
+        # Mostra mappa in Streamlit
+        st.subheader("Mappa del Percorso")
+        st_folium(m, width=700, height=500)
