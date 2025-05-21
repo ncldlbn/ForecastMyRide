@@ -21,7 +21,7 @@ from model.Weather import Forecast
 # PAGE CONFIG
 # --------------------------------------------------------------------
 st.set_page_config(page_title="ForecastMyRide", page_icon="🌦️", layout="wide")
-st.title("🌦️ ForecastMyRide")
+#st.title("🌦️ ForecastMyRide")
 
 # --------------------------------------------------------------------
 # SIDEBAR
@@ -193,8 +193,7 @@ if "time_estimated" not in st.session_state:
 if "weather_fetched" not in st.session_state:
     st.session_state["weather_fetched"] = False
 
-
-# Upload GPX file (sempre visibile)
+# Upload GPX file 
 uploaded_file = st.file_uploader(
     "", 
     type=["gpx"], 
@@ -207,16 +206,16 @@ cols = st.columns(2)
 with cols[0]:
     estimate_btn = st.button(
         "⏱️ Estimate Ride Time", 
-        disabled=uploaded_file is None,
+        disabled = uploaded_file is None,
         use_container_width=True
     )
 with cols[1]:
     weather_btn = st.button(
-        "🌤️ Get Weather Forecast", 
-        disabled=not st.session_state["time_estimated"],
+        "🌤️ Weather Forecast", 
+        disabled = not st.session_state["time_estimated"],
         use_container_width=True
     )
-    
+
 # Azioni bottoni
 if estimate_btn and uploaded_file is not None:
     percorso = Percorso(uploaded_file)
@@ -228,6 +227,7 @@ if estimate_btn and uploaded_file is not None:
     st.session_state["percorso"] = percorso
     st.session_state["time_estimated"] = True
     st.session_state["weather_fetched"] = False  # Reset forecast se rifai stima
+    st.rerun() # Forza il riavvio della pagina per aggiornare lo stato dei pulsanti
 
 if weather_btn and st.session_state["time_estimated"]:
     percorso = st.session_state["percorso"]
@@ -236,9 +236,10 @@ if weather_btn and st.session_state["time_estimated"]:
     st.session_state["weather_fetched"] = True
 
 # Tabs per risultati
-results_tabs = st.tabs(["🗺️ Route Info", "🌡️ Temperature", "🌧️ Precipitation", "💨 Wind", "🔆 UV"])
+results_tabs = st.tabs(["🗺️ Route", "🌡️ Temperature", "🌧️ Precipitation", "💨 Wind", "🔆 UV"])
 
 with results_tabs[0]:
+    st.subheader("Route Info")
     if st.session_state["time_estimated"]:
         percorso = st.session_state["percorso"]
         cols = st.columns(2)
@@ -248,11 +249,11 @@ with results_tabs[0]:
             st.metric("Avg speed", f"{percorso.avg_speed:.2f} km/h")
         with cols[1]:
             st.metric("End datetime", percorso.end_time)
-            st.metric("Total time", f"{percorso.total_hours}")
+            st.metric("Total time", f"{percorso.total_hours} h")
             st.metric("Kcal", f"{percorso.total_calories:.0f} kcal")
         percorso.plot_speed_profile()
     else:
-        st.info("Upload a GPX file and click on the button ⏱️ above to estimate ride time.")
+        st.info("Please upload a GPX file and estimate ride time.")
 
 if st.session_state.get("weather_fetched", False):
     with results_tabs[1]:
@@ -271,4 +272,3 @@ else:
     for i in range(1, 5):
         with results_tabs[i]:
             st.info("After ride time estimation, click on the button 🌤️ above to fetch the weather forecast along the route.")
-
