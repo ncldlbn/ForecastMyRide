@@ -185,6 +185,7 @@ if dt <= datetime.now():
 bike_setup = BikeSetup(W_cyclist, W_bike, W_other, Crr, Cd, A, drivetrain_loss=0.02, metabolic_efficiency=0.25, max_descent_speed=50.0)
 bike_model = CyclingPowerModel(bike_setup)
 
+
 # === Init session state ===
 if "percorso" not in st.session_state:
     st.session_state["percorso"] = None
@@ -192,8 +193,10 @@ if "time_estimated" not in st.session_state:
     st.session_state["time_estimated"] = False
 if "weather_fetched" not in st.session_state:
     st.session_state["weather_fetched"] = False
+if "last_file_state" not in st.session_state:
+    st.session_state["last_file_state"] = None
 
-# Upload GPX file 
+# === Upload GPX file === #
 uploaded_file = st.file_uploader(
     "", 
     type=["gpx"], 
@@ -201,7 +204,16 @@ uploaded_file = st.file_uploader(
     help="Drag the file here or click to select it."
 )
 
-# Pulsanti sopra le tabs
+# Controlla se il file è stato rimosso
+if st.session_state["last_file_state"] is not None and uploaded_file is None:
+    # Reset di tutti gli stati quando il file viene rimosso
+    st.session_state["percorso"] = None
+    st.session_state["time_estimated"] = False
+    st.session_state["weather_fetched"] = False
+# Aggiorna lo stato dell'ultimo file caricato
+st.session_state["last_file_state"] = uploaded_file
+
+# === BUTTONS === #
 cols = st.columns(2)
 with cols[0]:
     estimate_btn = st.button(
@@ -211,12 +223,15 @@ with cols[0]:
     )
 with cols[1]:
     weather_btn = st.button(
-        "🌤️ Weather Forecast", 
-        disabled = not st.session_state["time_estimated"],
+        "🌤️ Weather Forecast",
+        disabled = uploaded_file is None or not st.session_state["time_estimated"],
         use_container_width=True
     )
 
-# Azioni bottoni
+# === Tabs === #
+results_tabs = st.tabs(["🗺️ Route Info", "🌡️ Temperature", "🌧️ Precipitation", "💨 Wind", "🔆 UV"])
+
+# === AZIONI === #
 if estimate_btn and uploaded_file is not None:
     percorso = Percorso(uploaded_file)
     percorso.simplify(min_distance=50)
@@ -227,20 +242,20 @@ if estimate_btn and uploaded_file is not None:
     st.session_state["percorso"] = percorso
     st.session_state["time_estimated"] = True
     st.session_state["weather_fetched"] = False  # Reset forecast se rifai stima
-    st.rerun() # Forza il riavvio della pagina per aggiornare lo stato dei pulsanti
+    st.rerun()  # Forza il riavvio della pagina per aggiornare lo stato dei pulsanti
 
-if weather_btn and st.session_state["time_estimated"]:
+if weather_btn and uploaded_file is not None and st.session_state["time_estimated"]:
     percorso = st.session_state["percorso"]
     weather = Forecast(percorso.metrics_df)
     weather.get_forecast(model)
     st.session_state["weather_fetched"] = True
+elif weather_btn and not st.session_state["time_estimated"]:
+    st.info("Estimate ride time before checking for the weather forecast")
 
-# Tabs per risultati
-results_tabs = st.tabs(["🗺️ Route", "🌡️ Temperature", "🌧️ Precipitation", "💨 Wind", "🔆 UV"])
-
+# === RISULTATI ==== #
 with results_tabs[0]:
     st.subheader("Route Info")
-    if st.session_state["time_estimated"]:
+    if uploaded_file is not None and st.session_state["time_estimated"]:
         percorso = st.session_state["percorso"]
         cols = st.columns(2)
         with cols[0]:
@@ -255,7 +270,7 @@ with results_tabs[0]:
     else:
         st.info("Please upload a GPX file and estimate ride time.")
 
-if st.session_state.get("weather_fetched", False):
+if uploaded_file is not None and st.session_state.get("weather_fetched", False):
     with results_tabs[1]:
         st.subheader("Temperature")
         #weather.plot_temperature()
@@ -271,4 +286,9 @@ if st.session_state.get("weather_fetched", False):
 else:
     for i in range(1, 5):
         with results_tabs[i]:
-            st.info("After ride time estimation, click on the button 🌤️ above to fetch the weather forecast along the route.")
+            if uploaded_file is None:
+                st.info("Please upload a GPX file first.")
+            elif not st.session_state["time_estimated"]:
+                st.info("Please estimate ride time first.")
+            else:
+                st.info("After ride time estimation, click on the button 🌤️ above to fetch the weather forecast along the route.")
