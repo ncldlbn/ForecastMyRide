@@ -254,7 +254,7 @@ elif weather_btn and not st.session_state["time_estimated"]:
 
 # === RISULTATI ==== #
 with results_tabs[0]:
-    st.subheader("Route Info")
+    #st.subheader("Route Info")
     if uploaded_file is not None and st.session_state["time_estimated"]:
         percorso = st.session_state["percorso"]
         cols = st.columns(2)
@@ -268,27 +268,23 @@ with results_tabs[0]:
             st.metric("Kcal", f"{percorso.total_calories:.0f} kcal")
         percorso.plot_speed_profile()
     else:
-        st.info("Please upload a GPX file and estimate ride time.")
+        st.info("Upload a GPX file and click on the ⏱️ button to estimate ride time.")
 
 if uploaded_file is not None and st.session_state.get("weather_fetched", False):
     with results_tabs[1]:
-        st.subheader("Temperature")
-        #weather.plot_temperature()
+        weather.plot_temperature()
     with results_tabs[2]:
-        st.subheader("Precipitation")
-        #weather.plot_precipitation()
+        weather.plot_precipitation()
     with results_tabs[3]:
-        st.subheader("Wind")
-        #weather.plot_wind()
+        weather.plot_wind()
     with results_tabs[4]:
-        st.subheader("UV Index")
-        #weather.plot_uv_index()
+        weather.plot_uv_index()
 else:
     for i in range(1, 5):
         with results_tabs[i]:
             if uploaded_file is None:
-                st.info("Please upload a GPX file first.")
+                st.info("Upload a GPX file and click on the ⏱️ button to estimate ride time.")
             elif not st.session_state["time_estimated"]:
-                st.info("Please estimate ride time first.")
+                st.info("Click on the ⏱️ button to estimate ride time.")
             else:
-                st.info("After ride time estimation, click on the button 🌤️ above to fetch the weather forecast along the route.")
+                st.info("Click on the 🌤️ button above to fetch the weather forecast along the route.")

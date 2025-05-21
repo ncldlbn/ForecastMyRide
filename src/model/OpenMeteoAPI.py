@@ -184,7 +184,7 @@ def APIrequest(lat, lon, datetime_str, bearing, models):
             closest_15_min.get("wind_direction_10m", 0),
             bearing
         )[0],
-        "cross_wind": wind_components(
+        "crosswind": wind_components(
             closest_15_min.get("wind_speed_10m", 0),
             closest_15_min.get("wind_direction_10m", 0),
             bearing
