@@ -36,16 +36,14 @@ AREA_VALUES = {
 WEATHER = [
     "Temperature",
     "Precipitation",
+    "Rain",
+    "Snowfall",
     "WMO code",
-    "Relative Humidity",
-    "Precipitation Probability",
-    "CAPE",
     "Cloud cover",
     "Wind speed",
     "Wind direction",
     "Tailwind",
     "Crosswind",
-    "Freezing level Height",
     "UV-index"
 ]
 
