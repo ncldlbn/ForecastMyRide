@@ -1,13 +1,20 @@
+# Chiamate API
 import openmeteo_requests
-
 import requests_cache
 from retry_requests import retry
 
+# Elaborazione dati
 import pandas as pd
 import numpy as np
+
+# Date e Timezone
 from timezonefinder import TimezoneFinder
 from datetime import datetime
 import pytz
+
+# Grafici meteo
+import plotly.graph_objects as go
+import streamlit as st
 
 def map_weather_code(code):
     weather_map = {
@@ -54,8 +61,8 @@ def wind_components(wind_speed: float, wind_direction: float, bearing: float) ->
     - bearing (float): direzione in cui si muove il ciclista (in gradi, 0 = verso nord)
 
     Ritorna:
-    - wind_parallel (float): positiva se favorevole (vento da dietro), negativa se contraria
-    - wind_lateral (float): componente laterale (destra/sinistra)
+    - tailwind (float): positiva se favorevole (vento da dietro), negativa se contraria
+    - crosswind (float): componente laterale (destra/sinistra)
     """
 
     # Calcola la direzione verso cui soffia il vento (inversione)
@@ -65,15 +72,19 @@ def wind_components(wind_speed: float, wind_direction: float, bearing: float) ->
     relative_angle_rad = np.radians(wind_blowing_towards - bearing)
 
     # Componente parallela (positiva = vento favorevole, negativa = contrario)
-    wind_parallel = wind_speed * np.cos(relative_angle_rad)
+    tailwind = wind_speed * np.cos(relative_angle_rad)
 
     # Componente ortogonale (vento laterale)
-    wind_lateral = wind_speed * np.sin(relative_angle_rad)
+    crosswind = wind_speed * np.sin(relative_angle_rad)
 
-    return round(wind_parallel,1), round(wind_lateral,1)
+    return round(tailwind,1), round(crosswind,1)
 
 
-def meteo_api_request(lat, lon, datetime_str, bearing):
+def APIrequest(lat, lon, datetime_str, bearing, models):
+    def safe_extract_and_round(df, key, ndigits=0):
+        val = df.get(key, np.nan)
+        return round(val, ndigits) if pd.notna(val) else np.nan
+
     # Setup Open-Meteo API client
     cache_session = requests_cache.CachedSession('.cache', expire_after = 3600)
     retry_session = retry(cache_session, retries = 5, backoff_factor = 0.2)
@@ -83,9 +94,12 @@ def meteo_api_request(lat, lon, datetime_str, bearing):
     params = {
         "latitude": lat,
         "longitude": lon,
-        "hourly": ["uv_index", "precipitation_probability"],
-        "minutely_15": ["temperature_2m", "precipitation", "wind_speed_10m", "weather_code", "wind_direction_10m"],
-        "models": "best_match",
+        "hourly": ["uv_index", "cloud_cover"],
+        "minutely_15": [
+            "temperature_2m", "precipitation", "rain", "snowfall",
+            "weather_code", "wind_speed_10m", "wind_direction_10m"
+        ],
+        "models": models,
         "timezone": "auto",
         "temporal_resolution": "native"
     }
@@ -93,75 +107,92 @@ def meteo_api_request(lat, lon, datetime_str, bearing):
     responses = openmeteo.weather_api(url, params=params)
     response = responses[0]
 
-    # Ottieni la timezone locale dalla risposta dell'API
     timezone_name = response.Timezone()
     local_tz = pytz.timezone(timezone_name)
 
-    # Parse input datetime (localtime)
-    target_time_local = pd.to_datetime(datetime_str)
-    target_time_utc = local_tz.localize(target_time_local).astimezone(pytz.UTC)
+    # Parse input datetime
+    target_time_local = local_tz.localize(pd.to_datetime(datetime_str))
+    target_time_utc = target_time_local.astimezone(pytz.UTC)
 
-    # --- Minutely 15 data ---
+    # === MINUTELY_15 ===
     minutely_15 = response.Minutely15()
-    minutely_15_df = pd.DataFrame({
+    minutely_keys = [
+        "temperature_2m", "precipitation", "rain", "snowfall",
+        "weather_code", "wind_speed_10m", "wind_direction_10m"
+    ]
+    minutely_data = {
         "date": pd.date_range(
             start=pd.to_datetime(minutely_15.Time(), unit="s", utc=True),
             end=pd.to_datetime(minutely_15.TimeEnd(), unit="s", utc=True),
             freq=pd.Timedelta(seconds=minutely_15.Interval()),
             inclusive="left"
-        ),
-        "temperature_2m": minutely_15.Variables(0).ValuesAsNumpy(),
-        "precipitation": minutely_15.Variables(1).ValuesAsNumpy(),
-        "wind_speed_10m": minutely_15.Variables(2).ValuesAsNumpy(),
-        "weather_code": minutely_15.Variables(3).ValuesAsNumpy(),
-        "wind_direction_10m": minutely_15.Variables(4).ValuesAsNumpy()
-    })
+        )
+    }
 
+    for i, key in enumerate(minutely_keys):
+        try:
+            minutely_data[key] = minutely_15.Variables(i).ValuesAsNumpy()
+        except:
+            minutely_data[key] = [np.nan] * len(minutely_data["date"])  # Fill with NaNs if missing
+
+    minutely_15_df = pd.DataFrame(minutely_data)
+    minutely_15_df["datetime_local"] = minutely_15_df["date"].dt.tz_convert(local_tz)
+
+    # === HOURLY ===
     hourly = response.Hourly()
-    hourly_df = pd.DataFrame({
+    hourly_keys = ["uv_index", "cloud_cover"]
+    hourly_data = {
         "date": pd.date_range(
             start=pd.to_datetime(hourly.Time(), unit="s", utc=True),
             end=pd.to_datetime(hourly.TimeEnd(), unit="s", utc=True),
             freq=pd.Timedelta(seconds=hourly.Interval()),
             inclusive="left"
-        ),
-        "uv_index": hourly.Variables(0).ValuesAsNumpy(),
-        "precipitation_probability": hourly.Variables(1).ValuesAsNumpy(),
-    })
+        )
+    }
 
+    for i, key in enumerate(hourly_keys):
+        try:
+            hourly_data[key] = hourly.Variables(i).ValuesAsNumpy()
+        except:
+            hourly_data[key] = [np.nan] * len(hourly_data["date"])
 
-    # Converti i timestamp minutely_15 da UTC a ora locale
-    minutely_15_df['datetime_local'] = minutely_15_df['date'].dt.tz_convert(local_tz)
-    hourly_df['datetime_local'] = hourly_df['date'].dt.tz_convert(local_tz)
+    hourly_df = pd.DataFrame(hourly_data)
+    hourly_df["datetime_local"] = hourly_df["date"].dt.tz_convert(local_tz)
 
-    # 2. Assicurati che 'target_time_local' sia timezone-aware
-    target_time_local = local_tz.localize(target_time_local) 
-
-    # Verifica se target_time_local è dentro il range della previsione
-    if target_time_local < minutely_15_df['datetime_local'].min():
-        print("Target time is before the first available forecast time.")
+    # Check valid range
+    if target_time_local < minutely_15_df['datetime_local'].min() or target_time_local > minutely_15_df['datetime_local'].max():
+        print("⚠️ Target time fuori intervallo previsione.")
         return None
-    elif target_time_local > minutely_15_df['datetime_local'].max():
-        print("Target time is after the last available forecast time.")
-        return None
-    else:
-        # Trova il timestamp più vicino
-        minutely_15_df['time_diff'] = (minutely_15_df['datetime_local'] - target_time_local).abs()
-        closest_15_min = minutely_15_df.loc[minutely_15_df['time_diff'].idxmin()]
-        hourly_df['time_diff'] = (hourly_df['datetime_local'] - target_time_local).abs()
-        closest_hourly = hourly_df.loc[hourly_df['time_diff'].idxmin()]
 
-    # 4. Estrai i dati del timestamp più vicino come JSON
+    # Trova record più vicino
+    minutely_15_df["time_diff"] = (minutely_15_df["datetime_local"] - target_time_local).abs()
+    closest_15_min = minutely_15_df.loc[minutely_15_df["time_diff"].idxmin()]
+
+    hourly_df["time_diff"] = (hourly_df["datetime_local"] - target_time_local).abs()
+    closest_hourly = hourly_df.loc[hourly_df["time_diff"].idxmin()]
+
+    # === Composizione dati previsione ===
     forecast_data = {
-        "t_2m_C": round(closest_15_min['temperature_2m'], 1),
-        "prec_mm": round(closest_15_min['precipitation'], 1),
-        "prec_probability_%": round(closest_hourly['precipitation_probability']),
-        "ws_10m_kmh": round(closest_15_min['wind_speed_10m'], 1),
-        "wd_10m_deg": round(closest_15_min['wind_direction_10m']),
-        "tailwind": wind_components(closest_15_min['wind_speed_10m'], closest_15_min['wind_direction_10m'], bearing)[0],
-        "lateral_wind": wind_components(closest_15_min['wind_speed_10m'], closest_15_min['wind_direction_10m'], bearing)[1],
-        "WMO_code": map_weather_code(closest_15_min['weather_code']),
-        "UV_index": round(closest_hourly['uv_index'],1)
+        "temp": safe_extract_and_round(closest_15_min, "temperature_2m", 1),
+        "prec_mm": safe_extract_and_round(closest_15_min, "precipitation", 1),
+        "rain": safe_extract_and_round(closest_15_min, "rain", 1),
+        "snowfall": safe_extract_and_round(closest_15_min, "snowfall", 1),
+        "ws_10m_kmh": safe_extract_and_round(closest_15_min, "wind_speed_10m", 1),
+        "wd_10m_deg": safe_extract_and_round(closest_15_min, "wind_direction_10m"),
+        "tailwind": wind_components(
+            closest_15_min.get("wind_speed_10m", 0),
+            closest_15_min.get("wind_direction_10m", 0),
+            bearing
+        )[0],
+        "cross_wind": wind_components(
+            closest_15_min.get("wind_speed_10m", 0),
+            closest_15_min.get("wind_direction_10m", 0),
+            bearing
+        )[1],
+        "WMO_code": map_weather_code(closest_15_min.get("weather_code", np.nan)),
+        "UV_index": safe_extract_and_round(closest_hourly, "uv_index", 1),
+        "cloud_cover": safe_extract_and_round(closest_hourly, "cloud_cover"),
+        "model": models
     }
 
     return forecast_data

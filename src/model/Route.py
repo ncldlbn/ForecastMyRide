@@ -17,8 +17,6 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.patches import Patch
 
-from model.OpenMeteoAPI import meteo_api_request
-
 @dataclass
 class TrackPoint:
     """Classe per rappresentare un punto del percorso"""
@@ -404,83 +402,3 @@ class Percorso:
                 df.at[closest_idx, 'get_forecast'] = True
 
         self.metrics_df['get_forecast'] = df['get_forecast']
-
-    def weather_forecast(self):
-        def apply_forecast(row):
-            if row['get_forecast']:
-                return meteo_api_request(row['lat'], row['lon'], row['passage_time'], row['bearing'])
-            else:
-                return None
-
-        # Applica la funzione e salva i risultati in una nuova colonna
-        self.metrics_df['forecast'] = self.metrics_df.apply(apply_forecast, axis=1)
-
-        # Espandi il dizionario in più colonne
-        forecast_df = self.metrics_df['forecast'].apply(pd.Series, dtype='object')
-        self.metrics_df = pd.concat([self.metrics_df.drop(columns=['forecast']), forecast_df], axis=1)
-
-    def plot_weather(self):
-        """
-        Genera grafici interattivi del profilo altimetrico e delle variabili meteorologiche lungo il percorso.
-        """
-        meteo_cols = ["t_2m_C", "prec_mm", "prec_probability_%", "tailwind", "WMO_code", "UV_index"]
-        df = self.metrics_df.copy()
-        x = df["dist_cumulata"] / 1000  # Converti in km
-
-        # === Grafici meteo ===
-        for col in meteo_cols:
-            df[col] = df[col].interpolate()
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(
-                x=x,
-                y=df[col],
-                mode='lines',
-                name=col,
-                line=dict(width=2, color='steelblue'),
-                connectgaps=True
-            ))
-            fig.update_layout(
-                title=col,
-                xaxis_title="Distanza (km)",
-                yaxis_title=col,
-                template="plotly_white",
-                height=500
-            )
-            st.plotly_chart(fig, use_container_width=True)
-        #plt.show()
-
-    def show_interactive_map(self):
-        """Mostra una mappa interattiva con tooltip su ogni punto del percorso"""
-        if self.metrics_df.empty:
-            self.calculate_metrics()
-
-        df = self.metrics_df.copy()
-
-        # Centra la mappa sul primo punto
-        center = [df['lat'].iloc[0], df['lon'].iloc[0]]
-        m = folium.Map(location=center, zoom_start=13, tiles="OpenStreetMap")
-
-        # Linea del percorso
-        points = list(zip(df['lat'], df['lon']))
-        folium.PolyLine(points, color="blue", weight=3, opacity=0.7).add_to(m)
-
-        # Marker con tooltip per ogni punto (puoi filtrare per prestazioni)
-        step = max(1, len(df) // 500)  # massimo 500 marker
-        for i in range(0, len(df), step):
-            lat = df.iloc[i]['lat']
-            lon = df.iloc[i]['lon']
-            km = df.iloc[i]['cum_distance'] / 1000  # converti in km
-            time = df.iloc[i]['passage_time']
-            tooltip = f"{km:.2f} km<br>{time}"
-            folium.CircleMarker(
-                location=(lat, lon),
-                radius=2,
-                color='red',
-                fill=True,
-                fill_opacity=0.4,
-                tooltip=tooltip
-            ).add_to(m)
-
-        # Mostra mappa in Streamlit
-        st.subheader("Mappa del Percorso")
-        st_folium(m, width=700, height=500)

@@ -49,15 +49,14 @@ WEATHER = [
     "UV-index"
 ]
 
-MODELS = [
-    "Best Match",
-    "DWD ICON",
-    "DWD ICON-EU",
-    "DWD ICON-D2",
-    "ECMWF",
-    "GEM GLOBAL",
-    "Météo-France ARPEGE Europe",
-    "Météo-France AROME France HD",
-    "UK Met Office UK 2km",
-    "ItaliaMeteo ARPAE ICON 2I"
-]
+MODELS = {
+    "Best Match": "best_match",
+    "DWD ICON": "icon_global",
+    "DWD ICON-EU": "icon_eu",
+    "DWD ICON-D2": "icon_d2",
+    "GEM GLOBAL": "gem_global",
+    "Météo-France ARPEGE Europe": "meteofrance_arpege_europe",
+    "Météo-France AROME France HD": "meteofrance_arome_france_hd",
+    "UK Met Office UK 2km": "ukmo_uk_deterministic_2km",
+    "ItaliaMeteo ARPAE ICON 2I": "italia_meteo_arpae_icon_2i"
+}

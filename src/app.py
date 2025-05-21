@@ -12,7 +12,8 @@ from UI.functions import *
 from model.defaults import *
 from model.Route import Percorso
 from model.SpeedModel import CyclingPowerModel, BikeSetup
-from model.OpenMeteoAPI import *
+from model.OpenMeteoAPI import APIrequest
+from model.Weather import Forecast
 
 # --------------------------------------------------------------------
 # PAGE CONFIG
@@ -25,6 +26,7 @@ st.title("🌦️ ForecastMyRide")
 # --------------------------------------------------------------------
 st.sidebar.header("Configuration")
 
+# === Cyclist and Bike === #
 with st.sidebar.expander("🚴 Cyclist and Bike", expanded=True):
     # Weights
     col1, col2, col3 = st.columns(3)
@@ -64,6 +66,7 @@ with st.sidebar.expander("🚴 Cyclist and Bike", expanded=True):
         0, 500, 100,
         help="Average Power in Watt")
 
+# === Loss Coefficients === #
 with st.sidebar.expander("⚙️ Loss Coefficients", expanded=False):
     # Crr
     crr_options = list(CRR_VALUES.keys()) + ["Custom"]
@@ -140,6 +143,7 @@ with st.sidebar.expander("⚙️ Loss Coefficients", expanded=False):
                 format="%.2f"
                 )
 
+# === Weather Forecast === #
 with st.sidebar.expander("🌦️ Weather Forecast", expanded=True):
     # Start datetime
     col1, col2 = st.columns(2)
@@ -155,45 +159,38 @@ with st.sidebar.expander("🌦️ Weather Forecast", expanded=True):
             value=time_default, 
             help="Start date and time of your ride."
             )
-    # Weather model
-    st.selectbox("Model", options=MODELS)
-    # Weather variables
-    weather_options = st.multiselect(
-        "Weather Parameters:", 
-        options=WEATHER, 
-        default=["Temperature", "Precipitation", "WMO code"]
-        )
+    # Select Weather model
+    selected_model = st.selectbox("Model", options=MODELS)
+    model = MODELS[selected_model]
 
-# Footer
-st.sidebar.markdown("**Help**")
+# === Footer === #
 st.sidebar.markdown("**Credits**")
 st.sidebar.markdown("Created with [Streamlit](https://streamlit.io/) using weather data from [OpenMeteoAPI](https://open-meteo.com/)")
 st.sidebar.markdown(f"🐙 [Github](https://github.com/ncldlbn/ForecastMyRide/tree/main) Repository", unsafe_allow_html=True)
 #st.sidebar.markdown(f"🍺 Support me on [PayPal](https://www.paypal.com/it/home)", unsafe_allow_html=True)
 
-
 # --------------------------------------------------------------------
-# MAIN
+# MAIN PAGE
 # --------------------------------------------------------------------
 
 # === SETUP === #
 # Define start datetime
 dt = datetime.combine(date_input, time_input)
-# Warning if datetime is in the future
+# Warning if start datetime is in the past
 if dt <= datetime.now():
     st.warning("Date and time must be in the future!")
-# Bike setup
+# Define Bike setup
 bike_setup = BikeSetup(W_cyclist, W_bike, W_other, Crr, Cd, A, drivetrain_loss=0.02, metabolic_efficiency=0.25, max_descent_speed=50.0)
 bike_model = CyclingPowerModel(bike_setup)
 
-# === GPX FILE === #
+# === Upload GPX File === #
 # Init session state
 if "percorso" not in st.session_state:
     st.session_state["percorso"] = None
 if "time_estimated" not in st.session_state:
     st.session_state["time_estimated"] = False
 
-# Upload
+# Upload GPX button
 uploaded_file = st.file_uploader("", type=["gpx"], accept_multiple_files=False, help="Drag the file here or click to select it.")
 if uploaded_file is not None:
     if st.button("⏱️ Estimate Ride Time", use_container_width=True):
@@ -206,7 +203,7 @@ if uploaded_file is not None:
         st.session_state["percorso"] = percorso
         st.session_state["time_estimated"] = True
 
-# === Mostra i dati stimati se già stimati ===
+# Display route info
 if st.session_state["time_estimated"]:
     percorso = st.session_state["percorso"]
 
@@ -222,10 +219,14 @@ if st.session_state["time_estimated"]:
 
     percorso.plot_speed_profile()
 
-# === PREVISIONI METEO ===
+    percorso.mark_forecast_points()
+
+# === Weather Forecast === #
 if st.session_state["time_estimated"]:
     if st.button("🌤️ Get Weather Forecast", use_container_width=True):
+
         percorso = st.session_state["percorso"]
-        percorso.mark_forecast_points()
-        percorso.weather_forecast()
-        percorso.plot_weather()
+        
+        weather = Forecast(percorso.metrics_df)
+        weather.get_forecast(model)
+        weather.plot_forecast()
