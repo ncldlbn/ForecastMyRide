@@ -239,10 +239,12 @@ if estimate_btn and uploaded_file is not None:
     percorso.get_speed(bike_model, power)
     percorso.add_timestamp(dt)
     percorso.mark_forecast_points()
+    percorso.metrics_df.to_csv("route_df.csv")
     st.session_state["percorso"] = percorso
     st.session_state["time_estimated"] = True
     st.session_state["weather_fetched"] = False  # Reset forecast se rifai stima
     st.rerun()  # Forza il riavvio della pagina per aggiornare lo stato dei pulsanti
+    
 
 if weather_btn and uploaded_file is not None and st.session_state["time_estimated"]:
     percorso = st.session_state["percorso"]

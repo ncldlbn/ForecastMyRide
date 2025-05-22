@@ -16,8 +16,8 @@ class Forecast:
         - bearing (integer)
         - get_forecast (boolean)
         """
-        self.route_df = route_df[['passage_time', 'dist_cumulata', 'lat', 'lon', 'bearing', 'get_forecast']]
-        self.data = pd.DataFrame()
+        self.route_df = route_df[['passage_time', 'dist_cumulata', 'lat', 'lon', 'bearing', 'get_forecast']].copy()
+        self.forecast = pd.DataFrame()  # Qui verranno salvati solo i punti con previsione
 
     def get_forecast(self, models: str) -> pd.DataFrame:
         """
@@ -31,23 +31,26 @@ class Forecast:
 
         for idx in sub_df.index:
             row = self.route_df.loc[idx]
-            forecast = APIrequest(row['lat'], row['lon'], row['passage_time'], row['bearing'], models)
+            if row['get_forecast']:
+                forecast = APIrequest(row['lat'], row['lon'], row['passage_time'], row['bearing'], models)
 
-            if forecast and isinstance(forecast, dict):
-                forecast.update({
-                    "index": idx,
-                    "passage_time": row["passage_time"],
-                    "dist_km": row["dist_cumulata"]/1000
-                })
-                forecast_data.append(forecast)
+                if forecast and isinstance(forecast, dict):
+                    forecast.update({
+                        "index": idx,
+                        "passage_time": row["passage_time"],
+                        "dist_km": row["dist_cumulata"]/1000
+                    })
+                    forecast_data.append(forecast)
 
         if forecast_data:
             self.data = pd.DataFrame(forecast_data).set_index("index")
         else:
             self.data = pd.DataFrame()
 
-        return self.data
+        self.data.to_csv("forecast_df.csv")
 
+        return self.data
+    
     # def plot_forecast(self):
     #     """
     #     Genera grafici interattivi delle variabili meteo lungo il percorso.
@@ -117,22 +120,22 @@ class Forecast:
         # Creazione del grafico con Plotly
         fig = go.Figure()
         fig.add_trace(go.Scatter(
-            x=df_plot['dist_km'],
+            x=df_plot['passage_time'],
             y=df_plot['temp'],
             mode='lines+markers',
             name='Temperatura',
             line=dict(color='#FF5733', width=3),
             marker=dict(size=8),
             hovertemplate='<b>Temperature:</b> %{y:.1f}°C<br>' +
-                        '<b>Distance:</b> %{x:.2f} km<br>' +
-                        '<b>Time:</b> %{customdata}<extra></extra>',
-            customdata=df_plot['passage_time']
+                        '<b>Distance:</b> %{customdata:.1f} km<br>' +
+                        '<b>Time:</b> %{x}<extra></extra>',
+            customdata=df_plot['dist_km']
         ))
         
         # Configurazione del layout
         fig.update_layout(
             yaxis=dict(range=[df_plot['temp'].min() - 1, df_plot['temp'].max() + 1]),
-            xaxis_title='Distance (km)',
+            xaxis_title='Time',
             yaxis_title='Temperature (°C)',
             hovermode='closest',
             template='plotly_white',
@@ -176,35 +179,35 @@ class Forecast:
         
         # Aggiungiamo le barre per la precipitazione
         fig1.add_trace(go.Bar(
-            x=df_plot['dist_km'],
+            x=df_plot['passage_time'],
             y=df_plot['prec_mm'],
             name='Precipitation',
             marker_color='#5E9DE6',
             opacity=0.7,
             hovertemplate='<b>Precipitation:</b> %{y:.1f} mm<br>' +
-                        '<b>Distance:</b> %{x:.2f} km<br>' +
-                        '<b>Time:</b> %{customdata[0]}<extra></extra>',
-            customdata=df_plot[['passage_time']]
+                        '<b>Distance:</b> %{customdata:.1f} km<br>' +
+                        '<b>Time:</b> %{x}<extra></extra>',
+            customdata=df_plot[['dist_km']]
         ))
         
         # Aggiungiamo la linea per la copertura nuvolosa
         fig1.add_trace(go.Scatter(
-            x=df_plot['dist_km'],
+            x=df_plot['passage_time'],
             y=df_plot['cloud_cover'],
             mode='lines+markers',
             name='Cloud Cover',
             line=dict(color='#808080', width=3),
             marker=dict(size=6),
             yaxis='y2',
-            hovertemplate='<b>Cloud Cover:</b> %{y:.0f}%<br>' +
-                        '<b>Distance:</b> %{x:.2f} km<br>' +
-                        '<b>Time:</b> %{customdata[0]}<extra></extra>',
-            customdata=df_plot[['passage_time']]
+            hovertemplate='<b>Precipitation:</b> %{y:.1f} mm<br>' +
+                        '<b>Distance:</b> %{customdata:.1} km<br>' +
+                        '<b>Time:</b> %{x}<extra></extra>',
+            customdata=df_plot[['dist_km']]
         ))
         
         # Configurazione del layout per il primo grafico
         fig1.update_layout(
-            xaxis_title='Distance (km)',
+            xaxis_title='Time',
             yaxis_title='Precipitation (mm)',
             yaxis=dict(range=[0, max(1, df_plot['prec_mm'].max() + 0.5)]),
             yaxis2=dict(
@@ -381,30 +384,30 @@ class Forecast:
 
         # Tailwind
         fig.add_trace(go.Scatter(
-            x=df_plot['dist_km'],
+            x=df_plot['passage_time'],
             y=df_plot['tailwind'],
             mode='lines+markers',
             name='Tailwind',
             line=dict(color='#1f77b4', width=3),
             marker=dict(size=6),
             hovertemplate='<b>Tailwind:</b> %{y:.1f} km/h<br>' +
-                        '<b>Distance:</b> %{x:.2f} km<br>' +
-                        '<b>Time:</b> %{customdata}<extra></extra>',
-            customdata=df_plot['passage_time']
+                        '<b>Distance:</b> %{customdata:.1f} km<br>' +
+                        '<b>Time:</b> %{x}<extra></extra>',
+            customdata=df_plot['dist_km']
         ))
 
         # Crosswind
         fig.add_trace(go.Scatter(
-            x=df_plot['dist_km'],
+            x=df_plot['passage_time'],
             y=df_plot['crosswind'],
             mode='lines+markers',
             name='Crosswind',
             line=dict(color='#3299a8', width=2, dash='dash'),
             marker=dict(size=6),
-            hovertemplate='<b>Crosswind:</b> %{y:.1f} km/h<br>' +
-                        '<b>Distance:</b> %{x:.2f} km<br>' +
-                        '<b>Time:</b> %{customdata}<extra></extra>',
-            customdata=df_plot['passage_time']
+            hovertemplate='<b>Tailwind:</b> %{y:.1f} km/h<br>' +
+                        '<b>Distance:</b> %{customdata:.1f} km<br>' +
+                        '<b>Time:</b> %{x}<extra></extra>',
+            customdata=df_plot['dist_km']
         ))
 
         # Layout
@@ -450,16 +453,16 @@ class Forecast:
 
         # UV Line
         fig.add_trace(go.Scatter(
-            x=df_plot['dist_km'],
+            x=df_plot['passage_time'],
             y=df_plot['UV_index'],
             mode='lines+markers',
             name='UV Index',
             line=dict(color='#000000', width=3),
             marker=dict(size=6),
             hovertemplate='<b>UV Index:</b> %{y:.1f}<br>' +
-                        '<b>Distance:</b> %{x:.2f} km<br>' +
-                        '<b>Time:</b> %{customdata}<extra></extra>',
-            customdata=df_plot['passage_time']
+                        '<b>Distance:</b> %{customdata:.1f} km<br>' +
+                        '<b>Time:</b> %{x}<extra></extra>',
+            customdata=df_plot['dist_km']
         ))
 
         # Background color ranges (OMS UV levels)
