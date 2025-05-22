@@ -1,6 +1,11 @@
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+import folium
+import numpy as np
+from folium import plugins
+import matplotlib.cm as cm
+import matplotlib.colors as colors
 
 from model.OpenMeteoAPI import APIrequest
 
@@ -16,40 +21,57 @@ class Forecast:
         - bearing (integer)
         - get_forecast (boolean)
         """
-        self.route_df = route_df[['passage_time', 'dist_cumulata', 'lat', 'lon', 'bearing', 'get_forecast']].copy()
-        self.forecast = pd.DataFrame()  # Qui verranno salvati solo i punti con previsione
+        self.route = route_df[['passage_time', 'dist_cumulata', 'lat', 'lon', 'bearing', 'get_forecast']].copy()
+        self.data = pd.DataFrame()  # Dopo il merge con meteo
+
+        self.plot_config = {
+            'scrollZoom': False,
+            'displayModeBar': False,
+            'doubleClick': False,
+            'displaylogo': False,
+            'modeBarButtonsToRemove': [
+                'zoom2d', 'pan2d', 'select2d', 'lasso2d',
+                'zoomIn2d', 'zoomOut2d', 'autoScale2d', 'resetScale2d',
+                'hoverCompareCartesian', 'hoverClosestCartesian'  # opzionali: per disattivare hover comparativo
+            ]
+        }
 
     def get_forecast(self, models: str) -> pd.DataFrame:
         """
-        Richiede i dati di previsione per i punti del percorso dove 'get_forecast' è True.
-        I dati vengono salvati come attributo interno (data).
+        Richiede i dati di previsione solo per i punti con 'get_forecast' == True.
+        Restituisce un DataFrame unito a route_df con i dati meteo inseriti nelle righe appropriate.
         """
         forecast_data = []
 
-        mask = self.route_df['get_forecast'] == True
-        sub_df = self.route_df[mask]
-
-        for idx in sub_df.index:
-            row = self.route_df.loc[idx]
-            if row['get_forecast']:
+        for idx, row in self.route.iterrows():
+            if row.get('get_forecast', False):
                 forecast = APIrequest(row['lat'], row['lon'], row['passage_time'], row['bearing'], models)
 
                 if forecast and isinstance(forecast, dict):
                     forecast.update({
                         "index": idx,
                         "passage_time": row["passage_time"],
-                        "dist_km": row["dist_cumulata"]/1000
+                        "dist_km": row["dist_cumulata"] / 1000
                     })
                     forecast_data.append(forecast)
 
+        # Crea il DataFrame forecast e assegnalo all'attributo
         if forecast_data:
             self.data = pd.DataFrame(forecast_data).set_index("index")
         else:
             self.data = pd.DataFrame()
 
-        self.data.to_csv("forecast_df.csv")
+        # Merge tra self.route e self.forecast (ora pieno), su index
+        self.route = self.route.merge(
+            self.data,
+            how='left',
+            left_index=True,
+            right_index=True,
+            suffixes=("", "_meteo")
+        )
 
-        return self.data
+        self.data.to_csv("forecast_only.csv")
+        self.route.to_csv("route_with_forecast.csv")
     
     # def plot_forecast(self):
     #     """
@@ -137,15 +159,84 @@ class Forecast:
             yaxis=dict(range=[df_plot['temp'].min() - 1, df_plot['temp'].max() + 1]),
             xaxis_title='Time',
             yaxis_title='Temperature (°C)',
-            hovermode='closest',
+            hovermode='x',
             template='plotly_white',
-            height=500
+            height=500,
+            dragmode=False
         )
         fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='LightGray')
         fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='LightGray')
         
         # Visualizzazione in Streamlit
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, use_container_width=True, config=self.plot_config)
+
+    def temperature_map(self):
+        """
+        Crea una mappa con la traccia colorata in base alla temperatura
+        """
+        # Rimuovi le righe dove la temperatura è NaN
+        route_clean = self.route.dropna(subset=['temp']).copy()
+        
+        # Calcola il centro della mappa
+        center_lat = route_clean['lat'].mean()
+        center_lon = route_clean['lon'].mean()
+        
+        # Crea la mappa base
+        m = folium.Map(
+            location=[center_lat, center_lon],
+            zoom_start=13,
+            tiles='OpenStreetMap'
+        )
+        
+        # Normalizza i valori di temperatura per la colormap
+        temp_min = route_clean['temp'].min()
+        temp_max = route_clean['temp'].max()
+        
+        # Crea una colormap
+        colormap = cm.get_cmap('RdYlBu_r')  # Rosso per caldo, blu per freddo
+        norm = colors.Normalize(vmin=temp_min, vmax=temp_max)
+        
+        # Aggiungi i punti con colori basati sulla temperatura
+        for idx, row in route_clean.iterrows():
+            # Ottieni il colore per questa temperatura
+            color_rgba = colormap(norm(row['temp']))
+            color_hex = colors.rgb2hex(color_rgba[:3])
+            
+            folium.CircleMarker(
+                location=[row['lat'], row['lon']],
+                radius=6,
+                popup=f"Temp: {row['temp']}°C<br>Distanza: {row['dist_cumulata']:.1f}m",
+                color='black',
+                weight=1,
+                fillColor=color_hex,
+                fillOpacity=0.8
+            ).add_to(m)
+        
+        # Crea la linea del percorso
+        coordinates = [[row['lat'], row['lon']] for _, row in route_clean.iterrows()]
+        
+        # Aggiungi la linea del percorso
+        folium.PolyLine(
+            coordinates,
+            color='darkblue',
+            weight=3,
+            opacity=0.6
+        ).add_to(m)
+        
+        # Aggiungi una legenda personalizzata per la temperatura
+        legend_html = f'''
+        <div style="position: fixed; 
+                    bottom: 50px; left: 50px; width: 150px; height: 90px; 
+                    background-color: white; border:2px solid grey; z-index:9999; 
+                    font-size:14px; padding: 10px">
+        <p><b>Temperatura (°C)</b></p>
+        <p><i class="fa fa-circle" style="color:red"></i> Max: {temp_max:.1f}°C</p>
+        <p><i class="fa fa-circle" style="color:blue"></i> Min: {temp_min:.1f}°C</p>
+        </div>
+        '''
+        m.get_root().html.add_child(folium.Element(legend_html))
+        
+        return m
 
     def plot_precipitation(self):
         """
@@ -217,9 +308,10 @@ class Forecast:
                 range=[0, 110],
                 showgrid=False
             ),
-            hovermode='closest',
+            hovermode='x',
             template='plotly_white',
             height=500,
+            dragmode=False,
             legend=dict(
                 orientation="h",
                 yanchor="bottom",
@@ -230,7 +322,7 @@ class Forecast:
         )
 
         # Visualizzazione in Streamlit
-        st.plotly_chart(fig1, use_container_width=True)
+        st.plotly_chart(fig1, use_container_width=True, config=self.plot_config)
         
         # # SECONDO GRAFICO: Codici WMO (condizioni meteo)
         # fig2 = go.Figure()
@@ -414,10 +506,10 @@ class Forecast:
         fig.update_layout(
             xaxis_title='Distance (km)',
             yaxis_title='Wind Speed (km/h)',
-            hovermode='closest',
+            hovermode='x',
             template='plotly_white',
             height=500,
-            legend_title_text='',
+            dragmode=False,
             legend=dict(
                 orientation="h",
                 yanchor="bottom",
@@ -430,7 +522,7 @@ class Forecast:
         fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='LightGray')
 
         # Mostra in Streamlit
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, use_container_width=True, config=self.plot_config)
 
     def plot_uv_index(self):
         """
@@ -496,16 +588,16 @@ class Forecast:
             yaxis=dict(range=[-1, 12], showgrid=False),
             xaxis_title='Distance (km)',
             yaxis_title='UV Index',
-            hovermode='closest',
+            hovermode='x',
             template='plotly_white',
             height=500,
-            legend_title_text='',
+            dragmode=False
         )
 
         #fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='LightGray')
         #fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='LightGray', range=[0, max(12, df_plot['UV_index'].max() + 1)])
 
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, use_container_width=True, config=self.plot_config)
 
         
         

@@ -5,6 +5,7 @@
 import streamlit as st
 from streamlit_folium import st_folium
 from datetime import datetime, time
+import pytz
 import gpxpy
 import gpxpy.gpx
 # Custom libraries
@@ -161,6 +162,12 @@ with st.sidebar.expander("🌦️ Weather Forecast", expanded=True):
             value=time_default, 
             help="Start date and time of your ride."
             )
+    tz = pytz.all_timezones
+    timezone_input = st.selectbox(
+        "Timezone",
+        options=tz,
+        index=tz.index("Europe/Rome")
+    )
     # Select Weather model
     selected_model = st.selectbox("Model", options=MODELS)
     model = MODELS[selected_model]
@@ -239,7 +246,6 @@ if estimate_btn and uploaded_file is not None:
     percorso.get_speed(bike_model, power)
     percorso.add_timestamp(dt)
     percorso.mark_forecast_points()
-    percorso.metrics_df.to_csv("route_df.csv")
     st.session_state["percorso"] = percorso
     st.session_state["time_estimated"] = True
     st.session_state["weather_fetched"] = False  # Reset forecast se rifai stima
